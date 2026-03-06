@@ -1,0 +1,49 @@
+{
+  "name": "CFGoodNet",
+  "version": "0.0.0",
+  "description": "",
+  "main": "dist/main.js",
+  "author": "",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.11.0",
+    "pnpm": "^10.17.0"
+  },
+  "scripts": {
+    "build": "node --run clean && node --run build:ts",
+    "build:ts": "tsc --project tsconfig.build.json",
+    "clean": "rimraf dist",
+    "dev": "node --run clean && node --run build:ts && node --run dev-start",
+    "dev-start": "concurrently --raw node:dev:*",
+    "dev:app": "node --watch --watch-preserve-output --import ./dist/setup.js --enable-source-maps --env-file .env .",
+    "dev:build": "node --run build:ts -- --watch",
+    "docker:build": "docker build --tag CFGoodNet .",
+    "docker:run": "docker run --init --interactive --tty --publish 3000:3000 CFGoodNet",
+    "fix": "node --run format && node --run fix:lint",
+    "fix:lint": "eslint --fix .",
+    "format": "prettier --write .",
+    "start": "node --import ./dist/setup.js --enable-source-maps .",
+    "test": "concurrently --group node:test:* && node --run test-node",
+    "test-node": "tsx --import ./test/shim.mjs --test --test-reporter spec --env-file .env \"src/**/*.test.ts\"",
+    "test:format": "prettier --check .",
+    "test:lint": "eslint .",
+    "test:types": "tsc --noEmit --pretty"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-n": "^17.23.1",
+    "globals": "^16.5.0",
+    "prettier": "3.6.2",
+    "rimraf": "^6.1.2",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.47.0"
+  }
+}
