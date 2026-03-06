@@ -1,10 +1,11 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createSecureContext, type SecureContext } from "node:tls";
 import selfsigned from "selfsigned";
 
-const mitmCertFile = join(process.cwd(), "mitm-cert.pem");
-const mitmKeyFile = join(process.cwd(), "mitm-key.pem");
+const mitmDir = join(process.cwd(), "config");
+const mitmCertFile = join(mitmDir, "mitm-cert.pem");
+const mitmKeyFile = join(mitmDir, "mitm-key.pem");
 
 async function ensureMitmCertificate(): Promise<void> {
   const certExists = existsSync(mitmCertFile);
@@ -22,6 +23,9 @@ async function ensureMitmCertificate(): Promise<void> {
     keySize: 2048,
     notAfterDate,
   });
+  if (!existsSync(mitmDir)) {
+    mkdirSync(mitmDir, { recursive: true });
+  }
 
   writeFileSync(mitmCertFile, generated.cert, { encoding: "utf8" });
   writeFileSync(mitmKeyFile, generated.private, { encoding: "utf8" });
