@@ -1,4 +1,5 @@
 import { env } from "node:process";
+import { join } from "node:path";
 
 export const getEnv = (key: string, defaultValue?: string): string => {
   const value = env[key];
@@ -27,3 +28,5 @@ export const nodeEnv = getNodeEnv();
 
 // The deployment environment, e.g. "staging" or "production"
 export const appEnv = getEnv("APP_ENV", "development");
+
+// MITM certificate paths are managed by src/api/mitm-cert.ts
