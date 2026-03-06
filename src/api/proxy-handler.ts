@@ -59,7 +59,8 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
   }
   headers.host = targetUrl.host;
 
-  const upstreamRequest = (targetUrl.protocol === "https:" ? httpsRequest : httpRequest)(
+  const request = targetUrl.protocol === "https:" ? httpsRequest : httpRequest;
+  const upstreamRequest = request(
     {
       protocol: targetUrl.protocol,
       hostname: targetUrl.hostname,
