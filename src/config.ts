@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import yaml from "yaml";
-import { createMitmSecureContext } from "./tools/mitm-cert.js";
+import { ensureMitmRootCertificate } from "./tools/mitm-cert.js";
 
 export type ProxyAction = "REJECT" | "cfProxy" | "httpProxy" | "DIRECT";
 
@@ -36,10 +36,9 @@ export const mitmDir = (() => {
   return path;
 })();
 
-export const mitmSecureContext = await createMitmSecureContext(
-  join(mitmDir, "mitm-cert.pem"),
-  join(mitmDir, "mitm-key.pem"),
-);
+export const mitmCertPath = join(mitmDir, "mitm-cert.pem");
+export const mitmKeyPath = join(mitmDir, "mitm-key.pem");
+ensureMitmRootCertificate(mitmCertPath, mitmKeyPath);
 
 export const configYaml = (() => {
   const path = join(mitmDir, "config.yml");
