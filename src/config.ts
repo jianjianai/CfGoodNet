@@ -1,32 +1,36 @@
-import { env } from "node:process";
 import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import yaml from "yaml";
+import { createMitmSecureContext } from "./tools/mitm-cert.js";
 
-export const getEnv = (key: string, defaultValue?: string): string => {
-  const value = env[key];
-  if (value === undefined) {
-    if (defaultValue === undefined) {
-      throw new Error(`Environment variable ${key} is required`);
-    }
-    return defaultValue;
+export const mitmDir = (() => {
+  const path = join(process.cwd(), "config");
+  if (!existsSync(path)) {
+    mkdirSync(path, { recursive: true });
   }
-  return value;
-};
-
-export const port = Number(getEnv("PORT", "3000"));
-
-type NodeEnv = "development" | "production" | "test";
-
-const getNodeEnv = (): NodeEnv => {
-  const env = getEnv("NODE_ENV");
-  if (env !== "development" && env !== "production" && env !== "test") {
-    throw new Error(`Invalid NODE_ENV: ${env}`);
+  return path;
+})();
+export const mitmSecureContext = await createMitmSecureContext(
+  join(mitmDir, "mitm-cert.pem"),
+  join(mitmDir, "mitm-key.pem")
+);
+export const configYaml = (() => {
+  const path = join(mitmDir, "config.yml");
+  if (!existsSync(path)) {
+    const defaultConfig = 
+`
+server:
+  listen: 3000
+cfProxy: http://test.com/
+`;
+    writeFileSync(path, defaultConfig, { encoding: "utf8" });
   }
-  return env;
-};
+  const content = readFileSync(path, "utf8");
+  return yaml.parse(content);
+})();
 
-export const nodeEnv = getNodeEnv();
+export const port = configYaml.server?.listen ?? 3000;
+export const cfProxyUrl = new URL(configYaml.cfProxy);
 
-// The deployment environment, e.g. "staging" or "production"
-export const appEnv = getEnv("APP_ENV", "development");
 
-// MITM certificate paths are managed by src/api/mitm-cert.ts
+

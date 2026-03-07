@@ -1,13 +1,8 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { createSecureContext, type SecureContext } from "node:tls";
 import selfsigned from "selfsigned";
 
-const mitmDir = join(process.cwd(), "config");
-const mitmCertFile = join(mitmDir, "mitm-cert.pem");
-const mitmKeyFile = join(mitmDir, "mitm-key.pem");
-
-async function ensureMitmCertificate(): Promise<void> {
+async function ensureMitmCertificate(mitmCertFile: string, mitmKeyFile: string): Promise<void> {
   const certExists = existsSync(mitmCertFile);
   const keyExists = existsSync(mitmKeyFile);
   if (certExists && keyExists) {
@@ -23,17 +18,14 @@ async function ensureMitmCertificate(): Promise<void> {
     keySize: 2048,
     notAfterDate,
   });
-  if (!existsSync(mitmDir)) {
-    mkdirSync(mitmDir, { recursive: true });
-  }
 
   writeFileSync(mitmCertFile, generated.cert, { encoding: "utf8" });
   writeFileSync(mitmKeyFile, generated.private, { encoding: "utf8" });
   console.log(`[proxy] generated MITM certificate: ${mitmCertFile}`);
 }
 
-export async function createMitmSecureContext(): Promise<SecureContext> {
-  await ensureMitmCertificate();
+export async function createMitmSecureContext(mitmCertFile: string, mitmKeyFile: string): Promise<SecureContext> {
+  await ensureMitmCertificate(mitmCertFile, mitmKeyFile);
   return createSecureContext({
     cert: readFileSync(mitmCertFile),
     key: readFileSync(mitmKeyFile),

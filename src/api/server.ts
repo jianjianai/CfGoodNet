@@ -1,12 +1,10 @@
 import { createServer } from "node:http";
 import { TLSSocket } from "node:tls";
-import { createMitmSecureContext } from "./mitm-cert.js";
-import { handleProxyRequest } from "./proxy-handler.js";
-
-const mitmSecureContext = await createMitmSecureContext();
+import { handleProxyRequest, handleProxyUpgrade } from "./proxy-handler.js";
+import { mitmSecureContext, port } from "../config.js";
 
 export const server = createServer(handleProxyRequest);
-
+server.on("upgrade", handleProxyUpgrade);
 server.on("connect", (_req, clientSocket, head) => {
   clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
   if (head.length > 0) {
