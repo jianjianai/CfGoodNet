@@ -1,9 +1,11 @@
 import {
+  type IncomingHttpHeaders,
   type IncomingMessage,
   request as httpRequest,
   type ServerResponse,
 } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { createBrotliDecompress, createUnzip } from "node:zlib";
 import {
   getCfGoodResolvedIp,
   cfProxyUrl,
@@ -190,6 +192,115 @@ function readHttpProxyConnectResponse(
   proxySocket.once("error", onSocketError);
 }
 
+function stripCloudflareBeaconScript(html: string): string {
+  return html.replace(
+    /<script\b[^>]*\bsrc=["']https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js[^"']*["'][^>]*>\s*<\/script>/gi,
+    "",
+  );
+}
+
+function isHtmlResponse(contentType: string | string[] | undefined): boolean {
+  if (!contentType) {
+    return false;
+  }
+
+  const normalized = Array.isArray(contentType) ? contentType.join(";") : contentType;
+  return normalized.toLowerCase().includes("text/html");
+}
+
+function getContentEncoding(contentEncoding: string | string[] | undefined): string {
+  if (!contentEncoding) {
+    return "";
+  }
+
+  const raw = Array.isArray(contentEncoding) ? contentEncoding[0] : contentEncoding;
+  return (raw ?? "").toLowerCase().trim();
+}
+
+function collectStreamChunks(
+  stream: NodeJS.ReadableStream,
+  onDone: (buffer: Buffer) => void,
+  onError: (error: Error) => void,
+): void {
+  const chunks: Buffer[] = [];
+  stream.on("data", (chunk: Buffer | string) => {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  });
+  stream.on("end", () => {
+    onDone(Buffer.concat(chunks));
+  });
+  stream.on("error", onError);
+}
+
+function forwardUpstreamResponse(
+  clientRes: ServerResponse,
+  upstreamResponse: IncomingMessage,
+  options: {
+    rewriteLocation: boolean;
+    cfProxyUrl?: URL;
+    cfProxyBasePath: string;
+    removeBeaconScript: boolean;
+  },
+): void {
+  const responseHeaders: IncomingHttpHeaders = { ...upstreamResponse.headers };
+  const locationHeader = upstreamResponse.headers.location;
+  if (options.rewriteLocation && options.cfProxyUrl && typeof locationHeader === "string") {
+    responseHeaders.location = rewriteCfProxyLocation(locationHeader, options.cfProxyUrl, options.cfProxyBasePath);
+  }
+
+  const shouldStripBeacon =
+    options.removeBeaconScript &&
+    isHtmlResponse(responseHeaders["content-type"]);
+
+  if (!shouldStripBeacon) {
+    clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
+    upstreamResponse.pipe(clientRes);
+    return;
+  }
+
+  const contentEncoding = getContentEncoding(responseHeaders["content-encoding"]);
+  let rewriteSource: NodeJS.ReadableStream;
+
+  if (contentEncoding === "br") {
+    const brotli = createBrotliDecompress();
+    upstreamResponse.pipe(brotli);
+    rewriteSource = brotli;
+  } else if (contentEncoding === "gzip" || contentEncoding === "x-gzip" || contentEncoding === "deflate") {
+    const unzip = createUnzip();
+    upstreamResponse.pipe(unzip);
+    rewriteSource = unzip;
+  } else if (contentEncoding === "" || contentEncoding === "identity") {
+    rewriteSource = upstreamResponse;
+  } else {
+    clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
+    upstreamResponse.pipe(clientRes);
+    return;
+  }
+
+  collectStreamChunks(
+    rewriteSource,
+    (htmlBuffer) => {
+      const html = htmlBuffer.toString("utf8");
+    const strippedHtml = stripCloudflareBeaconScript(html);
+    const bodyBuffer = Buffer.from(strippedHtml, "utf8");
+
+    delete responseHeaders["content-encoding"];
+    delete responseHeaders["transfer-encoding"];
+    responseHeaders["content-length"] = String(bodyBuffer.byteLength);
+
+    clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
+    clientRes.end(bodyBuffer);
+    },
+    (error) => {
+      console.error("[proxy] failed to rewrite html response", error);
+      if (!clientRes.headersSent) {
+        clientRes.writeHead(502, { "Content-Type": "text/plain" });
+      }
+      clientRes.end("Bad Gateway");
+    },
+  );
+}
+
 export function handleProxyRequest(clientReq: IncomingMessage, clientRes: ServerResponse): void {
   const method = clientReq.method ?? "GET";
   const rawUrl = clientReq.url ?? "";
@@ -267,18 +378,12 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
           headers: upstreamHeaders,
         },
         (upstreamResponse) => {
-          const responseHeaders = { ...upstreamResponse.headers };
-          const locationHeader = upstreamResponse.headers.location;
-          if (shouldRewriteCfLocation && matchedCfProxyUrl && typeof locationHeader === "string") {
-            responseHeaders.location = rewriteCfProxyLocation(
-              locationHeader,
-              matchedCfProxyUrl,
-              cfProxyBasePath,
-            );
-          }
-
-          clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
-          upstreamResponse.pipe(clientRes);
+          forwardUpstreamResponse(clientRes, upstreamResponse, {
+            rewriteLocation: shouldRewriteCfLocation,
+            cfProxyUrl: matchedCfProxyUrl,
+            cfProxyBasePath,
+            removeBeaconScript: proxyAction === "cfProxy",
+          });
         },
       )
     : (upstreamUrl.protocol === "https:" ? httpsRequest : httpRequest)(
@@ -292,18 +397,12 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
           headers: upstreamHeaders,
         },
         (upstreamResponse) => {
-          const responseHeaders = { ...upstreamResponse.headers };
-          const locationHeader = upstreamResponse.headers.location;
-          if (shouldRewriteCfLocation && matchedCfProxyUrl && typeof locationHeader === "string") {
-            responseHeaders.location = rewriteCfProxyLocation(
-              locationHeader,
-              matchedCfProxyUrl,
-              cfProxyBasePath,
-            );
-          }
-
-          clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
-          upstreamResponse.pipe(clientRes);
+          forwardUpstreamResponse(clientRes, upstreamResponse, {
+            rewriteLocation: shouldRewriteCfLocation,
+            cfProxyUrl: matchedCfProxyUrl,
+            cfProxyBasePath,
+            removeBeaconScript: proxyAction === "cfProxy",
+          });
         },
       );
 
