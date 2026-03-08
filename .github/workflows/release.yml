@@ -67,11 +67,15 @@ jobs:
           } > release-notes.md
 
       - name: Try generate intro with GPT-5 mini (optional)
-        if: ${{ secrets.GITHUB_MODELS_TOKEN != '' }}
         continue-on-error: true
         env:
           GITHUB_MODELS_TOKEN: ${{ secrets.GITHUB_MODELS_TOKEN }}
         run: |
+          if [ -z "${GITHUB_MODELS_TOKEN:-}" ]; then
+            echo "GITHUB_MODELS_TOKEN is not set, skip AI release intro generation."
+            exit 0
+          fi
+
           RECENT_COMMITS="$(git log -n 20 --pretty=format:'%h %s' | sed ':a;N;$!ba;s/\n/\\n/g')"
           PROMPT="你是发布工程师，请基于以下提交，生成一段简洁中文版本介绍，包含：1) 本次主要变化 2) 使用影响 3) 风险提示。提交列表：${RECENT_COMMITS}"
 
