@@ -1,3 +1,4 @@
+import "./setup.js";
 import { server } from "./api/server.js";
 import { port } from "./config.js";
 import packageJson from "../package.json" with { type: "json" };
