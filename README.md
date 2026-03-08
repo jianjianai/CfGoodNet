@@ -110,6 +110,19 @@ rules:
 
 若 `cfGoodIp` 未配置或解析失败，则回退为 `cfProxy` 的默认 DNS 解析。
 
+## HTTP 转发说明
+
+当规则命中 `cfProxy` 时，HTTP/HTTPS 目标会映射为 cfProxy 路径：
+
+- `https://target` -> `https://cfProxy/.../https://target...`
+- `http://target` -> `https://cfProxy/.../http://target...`（当 `cfProxy` 为 `https://`）
+
+`cfProxy` 协议映射：
+
+- `http://cfProxy` -> 上游 `http://cfProxy`
+- `https://cfProxy` -> 上游 `https://cfProxy`
+
+
 ## WebSocket 转发说明
 
 当规则命中 `cfProxy` 时，WebSocket 目标会映射为 cfProxy 路径：
