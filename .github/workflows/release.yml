@@ -1,0 +1,119 @@
+name: Release on main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and package
+        run: pnpm run package:zip
+
+      - name: Verify release files
+        run: |
+          test -f dist/app.cjs
+          test -f dist/CFGoodNet.zip
+
+      - name: Compute release metadata
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          TAG="v$(date +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
+          TITLE="CFGoodNet ${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate fallback release notes
+        run: |
+          {
+            echo "# CFGoodNet 自动发布"
+            echo
+            echo "- 分支: \\`main\\`"
+            echo "- 提交: \\`${GITHUB_SHA}\\`"
+            echo "- 运行号: \\`${GITHUB_RUN_NUMBER}\\`"
+            echo
+            echo "## 发布文件"
+            echo "- app.cjs"
+            echo "- CFGoodNet.zip"
+            echo
+            echo "## 最近提交"
+            git log -n 10 --pretty=format:'- %s (%h)'
+          } > release-notes.md
+
+      - name: Try generate intro with GPT-5 mini (optional)
+        if: ${{ secrets.GITHUB_MODELS_TOKEN != '' }}
+        continue-on-error: true
+        env:
+          GITHUB_MODELS_TOKEN: ${{ secrets.GITHUB_MODELS_TOKEN }}
+        run: |
+          RECENT_COMMITS="$(git log -n 20 --pretty=format:'%h %s' | sed ':a;N;$!ba;s/\n/\\n/g')"
+          PROMPT="你是发布工程师，请基于以下提交，生成一段简洁中文版本介绍，包含：1) 本次主要变化 2) 使用影响 3) 风险提示。提交列表：${RECENT_COMMITS}"
+
+          jq -n \
+            --arg model "openai/gpt-5-mini" \
+            --arg prompt "$PROMPT" \
+            '{
+              model: $model,
+              messages: [
+                {role: "system", content: "你是严谨的软件发布说明助手。"},
+                {role: "user", content: $prompt}
+              ],
+              temperature: 0.2
+            }' > model-request.json
+
+          curl -sS https://models.inference.ai.azure.com/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${GITHUB_MODELS_TOKEN}" \
+            --data @model-request.json > model-response.json
+
+          AI_TEXT="$(jq -r '.choices[0].message.content // empty' model-response.json)"
+          if [ -n "$AI_TEXT" ]; then
+            {
+              echo "# CFGoodNet 自动发布"
+              echo
+              echo "${AI_TEXT}"
+              echo
+              echo "---"
+              echo
+              echo "## 发布文件"
+              echo "- app.cjs"
+              echo "- CFGoodNet.zip"
+            } > release-notes.md
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.title }}
+          body_path: release-notes.md
+          files: |
+            dist/app.cjs
+            dist/CFGoodNet.zip
+          fail_on_unmatched_files: true
