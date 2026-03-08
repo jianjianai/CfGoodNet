@@ -134,15 +134,19 @@ function getTerminalWidth(): number {
     : 120;
 }
 
-function formatProxyLogLine(ruleText: string, url: string): string {
-  const prefix = `[PORXY] ${ruleText} `;
+function clipToTerminalWidth(input: string): string {
   const maxWidth = getTerminalWidth();
-  const remaining = maxWidth - prefix.length;
-  if (remaining <= 0) {
-    return prefix.slice(0, maxWidth);
+  if (input.length <= maxWidth) {
+    return input;
   }
 
-  return `${prefix}${url.slice(0, remaining)}`;
+  return input.slice(0, maxWidth);
+}
+
+function formatProxyLogBlock(ruleText: string, proxyRul: string, url: string): string {
+  const firstLine = clipToTerminalWidth(`[PORXY] ${ruleText} ${proxyRul}`);
+  const secondLine = clipToTerminalWidth(url);
+  return `${firstLine}\n${secondLine}`;
 }
 
 function readHttpProxyConnectResponse(
@@ -213,6 +217,7 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
 
   let upstreamUrl: URL = targetUrl;
   let shouldUseHttpProxy = false;
+  let proxyRul = "localhost";
   let cfProxyBasePath = "";
   let shouldRewriteCfLocation = false;
 
@@ -224,10 +229,14 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
     const proxyUrl = `${cfProxyUrl.origin}${proxyBasePath}${targetUrl.href}`;
     upstreamUrl = new URL(proxyUrl);
     matchedCfProxyUrl = cfProxyUrl;
+    proxyRul = cfProxyUrl.href;
     cfProxyBasePath = proxyBasePath;
     shouldRewriteCfLocation = true;
   } else if (proxyAction === "httpProxy") {
     shouldUseHttpProxy = !!httpProxyHost && !!httpProxyPort;
+    if (shouldUseHttpProxy) {
+      proxyRul = `http://${httpProxyHost}:${httpProxyPort}`;
+    }
   }
 
   if (proxyAction === "cfProxy" && !cfProxyUrl) {
@@ -244,7 +253,7 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
     upstreamHeaders["proxy-authorization"] = proxyAuthorization;
   }
 
-  console.log(formatProxyLogLine(ruleText, targetUrl.href));
+  console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
   const upstreamRequest = shouldUseHttpProxy
     ? httpRequest(
         {
@@ -324,10 +333,15 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
 
   let effectiveTargetUrl = targetUrl;
   let shouldUseHttpProxy = false;
+  let proxyRul = "localhost";
   if (proxyAction === "cfProxy" && cfProxyUrl) {
     effectiveTargetUrl = buildCfProxyWebSocketUrl(targetUrl, cfProxyUrl);
+    proxyRul = cfProxyUrl.href;
   } else if (proxyAction === "httpProxy") {
     shouldUseHttpProxy = !!httpProxyHost && !!httpProxyPort;
+    if (shouldUseHttpProxy) {
+      proxyRul = `http://${httpProxyHost}:${httpProxyPort}`;
+    }
   }
 
   if (proxyAction === "cfProxy" && !cfProxyUrl) {
@@ -357,7 +371,7 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
     }
   };
 
-  console.log(formatProxyLogLine(ruleText, targetUrl.href));
+  console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
 
   const attachUpgradeTunnel = (
     upstreamSocket: Socket | TLSSocket,
