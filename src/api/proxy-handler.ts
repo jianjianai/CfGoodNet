@@ -5,6 +5,7 @@ import {
 } from "node:http";
 import { request as httpsRequest } from "node:https";
 import {
+  getCfGoodResolvedIp,
   cfProxyUrl,
   httpProxyAuth,
   httpProxyHost,
@@ -218,6 +219,7 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
   let upstreamUrl: URL = targetUrl;
   let shouldUseHttpProxy = false;
   let proxyRul = "localhost";
+  let cfProxyConnectIp: string | undefined;
   let cfProxyBasePath = "";
   let shouldRewriteCfLocation = false;
 
@@ -229,6 +231,7 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
     const proxyUrl = `${cfProxyUrl.origin}${proxyBasePath}${targetUrl.href}`;
     upstreamUrl = new URL(proxyUrl);
     matchedCfProxyUrl = cfProxyUrl;
+    cfProxyConnectIp = getCfGoodResolvedIp();
     proxyRul = cfProxyUrl.href;
     cfProxyBasePath = proxyBasePath;
     shouldRewriteCfLocation = true;
@@ -281,8 +284,9 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
     : (upstreamUrl.protocol === "https:" ? httpsRequest : httpRequest)(
         {
           protocol: upstreamUrl.protocol,
-          hostname: upstreamUrl.hostname,
+          hostname: cfProxyConnectIp ?? upstreamUrl.hostname,
           port: upstreamUrl.port || undefined,
+          servername: upstreamUrl.hostname,
           method,
           path: `${upstreamUrl.pathname}${upstreamUrl.search}`,
           headers: upstreamHeaders,
@@ -334,8 +338,10 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
   let effectiveTargetUrl = targetUrl;
   let shouldUseHttpProxy = false;
   let proxyRul = "localhost";
+  let cfProxyConnectIp: string | undefined;
   if (proxyAction === "cfProxy" && cfProxyUrl) {
     effectiveTargetUrl = buildCfProxyWebSocketUrl(targetUrl, cfProxyUrl);
+    cfProxyConnectIp = getCfGoodResolvedIp();
     proxyRul = cfProxyUrl.href;
   } else if (proxyAction === "httpProxy") {
     shouldUseHttpProxy = !!httpProxyHost && !!httpProxyPort;
@@ -408,14 +414,15 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
   };
 
   if (!shouldUseHttpProxy) {
+    const connectHost = cfProxyConnectIp ?? effectiveTargetUrl.hostname;
     const directUpstreamSocket: Socket | TLSSocket = isSecureTarget
       ? connectTlsSocket({
-          host: effectiveTargetUrl.hostname,
+          host: connectHost,
           port: targetPort,
           servername: effectiveTargetUrl.hostname,
         })
       : connectSocket({
-          host: effectiveTargetUrl.hostname,
+          host: connectHost,
           port: targetPort,
         });
 

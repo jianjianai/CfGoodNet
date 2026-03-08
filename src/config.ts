@@ -1,5 +1,7 @@
 import { join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import yaml from "yaml";
 import { ensureMitmRootCertificate } from "./tools/mitm-cert.js";
 
@@ -47,6 +49,7 @@ export const configYaml = (() => {
 server:
   listen: 3000
 cfProxy: http://test.com/
+cfGoodIp: freeyx.cloudflare88.eu.org
 httpProxy:
   host: 127.0.0.1
   port: 7897
@@ -231,6 +234,10 @@ function parsePort(raw: unknown): number | undefined {
 
 export const port = parsePort(configYaml.server?.listen) ?? 3000;
 export const cfProxyUrl = parseProxyUrl(configYaml.cfProxy);
+export const cfGoodIp =
+  typeof configYaml.cfGoodIp === "string" && configYaml.cfGoodIp.trim() !== ""
+    ? configYaml.cfGoodIp.trim()
+    : undefined;
 export const httpProxyHost =
   typeof configYaml.httpProxy?.host === "string" && configYaml.httpProxy.host.trim() !== ""
     ? configYaml.httpProxy.host.trim()
@@ -272,6 +279,32 @@ export function resolveProxyRuleByHostname(hostname: string): ResolvedProxyRule 
 
 export function resolveProxyActionByHostname(hostname: string): ProxyAction {
   return resolveProxyRuleByHostname(hostname).action;
+}
+
+let cfGoodResolvedIp: string | undefined;
+
+export async function initCfGoodIp(): Promise<void> {
+  if (!cfGoodIp) {
+    return;
+  }
+
+  if (isIP(cfGoodIp) !== 0) {
+    cfGoodResolvedIp = cfGoodIp;
+    console.log(`[proxy] cfGoodIp: ${cfGoodResolvedIp}`);
+    return;
+  }
+
+  try {
+    const result = await lookup(cfGoodIp, { family: 0, all: false, verbatim: true });
+    cfGoodResolvedIp = result.address;
+    console.log(`[proxy] cfGoodIp: ${cfGoodResolvedIp}`);
+  } catch (error) {
+    console.warn(`[proxy] cfGoodIp resolve failed: ${cfGoodIp}`, error);
+  }
+}
+
+export function getCfGoodResolvedIp(): string | undefined {
+  return cfGoodResolvedIp;
 }
 
 
