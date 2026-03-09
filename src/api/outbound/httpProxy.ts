@@ -64,7 +64,7 @@ export const httpProxyOutbound: Outbound = {
       if (!clientRes.headersSent) {
         clientRes.writeHead(502, { "Content-Type": "text/plain" });
       }
-      clientRes.end("Bad Gateway");
+      clientRes.end(`Bad Gateway: proxy ${httpProxyHost}:${httpProxyPort} unreachable`);
     });
 
     clientReq.pipe(upstreamRequest);
@@ -91,7 +91,7 @@ export const httpProxyOutbound: Outbound = {
     const onUpstreamError = (error: Error) => {
       console.error("[proxy] upstream websocket tunnel failed", error);
       if (!clientSocket.destroyed) {
-        writeHttpError(clientSocket, 502, "Bad Gateway");
+        writeHttpError(clientSocket, 502, `Bad Gateway (proxy ${httpProxyHost}:${httpProxyPort})`);
       }
     };
 

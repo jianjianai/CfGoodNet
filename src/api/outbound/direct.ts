@@ -45,7 +45,8 @@ export const DIRECToutbound: Outbound = {
       if (!clientRes.headersSent) {
         clientRes.writeHead(502, { "Content-Type": "text/plain" });
       }
-      clientRes.end("Bad Gateway");
+      // include upstream host in response body for easier debugging
+      clientRes.end(`Bad Gateway: could not reach ${upstreamUrl.host}`);
     });
 
     clientReq.pipe(upstreamRequest);
@@ -62,7 +63,7 @@ export const DIRECToutbound: Outbound = {
     const onUpstreamError = (error: Error) => {
       console.error("[proxy] upstream websocket tunnel failed", error);
       if (!clientSocket.destroyed) {
-        writeHttpError(clientSocket, 502, "Bad Gateway");
+        writeHttpError(clientSocket, 502, `Bad Gateway (target ${targetUrl.host})`);
       }
     };
 

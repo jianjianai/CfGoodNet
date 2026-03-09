@@ -126,7 +126,7 @@ export const cfProxyOutbound: Outbound = {
       if (!clientRes.headersSent) {
         clientRes.writeHead(502, { "Content-Type": "text/plain" });
       }
-      clientRes.end("Bad Gateway");
+      clientRes.end(`Bad Gateway: cfProxy upstream ${upstreamUrl.host} unreachable`);
     });
 
     clientReq.pipe(upstreamRequest);
@@ -154,7 +154,7 @@ export const cfProxyOutbound: Outbound = {
     const onUpstreamError = (error: Error) => {
       console.error("[proxy] upstream websocket tunnel failed", error);
       if (!clientSocket.destroyed) {
-        writeHttpError(clientSocket, 502, "Bad Gateway");
+        writeHttpError(clientSocket, 502, `Bad Gateway (cfProxy ${effectiveTargetUrl.host})`);
       }
     };
 
