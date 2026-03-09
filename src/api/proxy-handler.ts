@@ -264,9 +264,11 @@ function readHttpProxyConnectResponse(
  * @returns 无返回值。
  */
 export function handleProxyRequest(clientReq: IncomingMessage, clientRes: ServerResponse): void {
+  // 提取请求方法和原始 URL，如果缺省则使用 GET 或空字符串
   const method = clientReq.method ?? "GET";
   const rawUrl = clientReq.url ?? "";
 
+  // 根据 socket 是否加密决定默认协议（用于相对路径的情况）
   const defaultProtocol: "http:" | "https:" =
     "encrypted" in clientReq.socket && clientReq.socket.encrypted ? "https:" : "http:";
 
@@ -277,26 +279,31 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
     return;
   }
 
+  // 复制请求头并删除所有 hop-by-hop 头，这些头不能转发给上游
   const headers = { ...clientReq.headers };
   for (const headerName of hopByHopHeaders) {
     delete headers[headerName];
   }
 
+  // 根据目标主机名应用代理规则，可能返回 DIRECT、cfProxy、httpProxy 或 REJECT
   const { action: proxyAction, ruleText } = resolveProxyRuleByHostname(targetUrl.hostname);
   if (proxyAction === "REJECT") {
+    // 拒绝的规则直接返回 403
     clientRes.writeHead(403, { "Content-Type": "text/plain" });
     clientRes.end("Blocked by proxy rule");
     return;
   }
 
+  // 默认上游 URL 是目标地址，可根据规则调整
   let upstreamUrl: URL = targetUrl;
   let shouldUseHttpProxy = false;
-  let proxyRul = "localhost";
+  let proxyRul = "localhost"; // 用于日志记录当前使用的代理
   let cfProxyConnectIp: string | undefined;
   let cfProxyBasePath = "";
   let shouldRewriteCfLocation = false;
 
   let matchedCfProxyUrl: URL | undefined;
+  // 如果是 cfProxy 规则并且配置了 cfProxyUrl，则将目标嵌入到 cfProxy 地址中
   if (proxyAction === "cfProxy" && cfProxyUrl) {
     const proxyBasePath = cfProxyUrl.pathname.endsWith("/")
       ? cfProxyUrl.pathname
@@ -307,8 +314,9 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
     cfProxyConnectIp = getCfGoodResolvedIp();
     proxyRul = cfProxyUrl.href;
     cfProxyBasePath = proxyBasePath;
-    shouldRewriteCfLocation = true;
+    shouldRewriteCfLocation = true; // cfProxy 可能返回重定向需要处理
   } else if (proxyAction === "httpProxy") {
+    // httpProxy 情况下只在主机和端口都存在时才使用
     shouldUseHttpProxy = !!httpProxyHost && !!httpProxyPort;
     if (shouldUseHttpProxy) {
       proxyRul = `http://${httpProxyHost}:${httpProxyPort}`;
@@ -329,20 +337,23 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
     upstreamHeaders["proxy-authorization"] = proxyAuthorization;
   }
 
+  // 输出日志块，包含命中规则与代理以及原始目标 URL
   console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
+  // 根据是否需要 HTTP 代理选择不同的请求构造方式
   const upstreamRequest = shouldUseHttpProxy
     ? httpRequest(
         {
           hostname: httpProxyHost,
           port: Number(httpProxyPort),
           method,
-          path: upstreamUrl.href,
+          path: upstreamUrl.href, // 通过代理时使用完整 URL
           headers: upstreamHeaders,
         },
         (upstreamResponse) => {
           const responseHeaders = { ...upstreamResponse.headers };
           const locationHeader = upstreamResponse.headers.location;
           if (shouldRewriteCfLocation && matchedCfProxyUrl && typeof locationHeader === "string") {
+            // cfProxy 的重定向地址需要还原给客户端
             responseHeaders.location = rewriteCfProxyLocation(
               locationHeader,
               matchedCfProxyUrl,
@@ -399,6 +410,7 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
  * @returns 无返回值。
  */
 export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer): void {
+  // 提取原始 URL 并依据加密状态设置默认 websocket 协议
   const rawUrl = clientReq.url ?? "";
   const defaultProtocol: "ws:" | "wss:" =
     "encrypted" in clientReq.socket && clientReq.socket.encrypted ? "wss:" : "ws:";
@@ -409,21 +421,26 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
     return;
   }
 
+  // 根据目标主机名查找代理规则
   const { action: proxyAction, ruleText } = resolveProxyRuleByHostname(targetUrl.hostname);
   if (proxyAction === "REJECT") {
+    // 拒绝则直接返回错误并关闭 socket
     writeHttpError(clientSocket, 403, "Forbidden");
     return;
   }
 
+  // 基于代理规则决定上游目标，cfProxy 和 httpProxy 时会对 URL 做特殊处理
   let effectiveTargetUrl = targetUrl;
   let shouldUseHttpProxy = false;
   let proxyRul = "localhost";
   let cfProxyConnectIp: string | undefined;
   if (proxyAction === "cfProxy" && cfProxyUrl) {
+    // 使用 cfProxy 隧道时构造对应的入口地址，并可能通过固定 IP 连接
     effectiveTargetUrl = buildCfProxyWebSocketUrl(targetUrl, cfProxyUrl);
     cfProxyConnectIp = getCfGoodResolvedIp();
     proxyRul = cfProxyUrl.href;
   } else if (proxyAction === "httpProxy") {
+    // HTTP 代理需要 host/port 都配置
     shouldUseHttpProxy = !!httpProxyHost && !!httpProxyPort;
     if (shouldUseHttpProxy) {
       proxyRul = `http://${httpProxyHost}:${httpProxyPort}`;
@@ -438,6 +455,7 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
     console.warn("[proxy] httpProxy rule matched for websocket but httpProxy is not configured, fallback to DIRECT");
   }
 
+  // 判断目标是否使用 TLS，并计算端口号
   const isSecureTarget =
     effectiveTargetUrl.protocol === "wss:" ||
     effectiveTargetUrl.protocol === "https:";
@@ -446,6 +464,7 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
   );
   const proxyAuthorization = buildProxyAuthorizationHeader(httpProxyAuth);
   if (!Number.isFinite(targetPort) || targetPort <= 0) {
+    // 端口非法则直接报错
     writeHttpError(clientSocket, 400, "Bad Request");
     return;
   }
@@ -493,6 +512,7 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
     }
   };
 
+  // 如果不经过 HTTP 代理，就直接建立 TCP 或 TLS 连接
   if (!shouldUseHttpProxy) {
     const connectHost = cfProxyConnectIp ?? effectiveTargetUrl.hostname;
     const directUpstreamSocket: Socket | TLSSocket = isSecureTarget
