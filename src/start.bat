@@ -1,132 +1,181 @@
 @echo off
-chcp 65001 >nul
-setlocal enabledelayedexpansion
+setlocal EnableExtensions EnableDelayedExpansion
 
-REM 切换到脚本所在目录
-cd /d "%~dp0"
+set "SCRIPT_DIR=%~dp0"
+set "CONFIG_DIR="
+set "CONFIG_FILE="
+for %%F in ("%SCRIPT_DIR%config\config.yml" "%SCRIPT_DIR%..\config\config.yml") do (
+	if not defined CONFIG_FILE if exist "%%~fF" (
+		set "CONFIG_FILE=%%~fF"
+		for %%D in ("%%~dpF.") do set "CONFIG_DIR=%%~fD"
+	)
+)
+if not defined CONFIG_FILE (
+	set "CONFIG_DIR=%SCRIPT_DIR%config"
+	set "CONFIG_FILE=%SCRIPT_DIR%config\config.yml"
+)
+set "USER_DATA_DIR=%SCRIPT_DIR%msedge"
+set "PROXY_SERVER=http://127.0.0.1:3000"
+set "APP_FILE=%SCRIPT_DIR%app.cjs"
 
-echo ========================================
-echo 启动 Node.js 应用 app.cjs
-echo 然后启动浏览器，配置代理到本地 3000
-echo 浏览器关闭后，Node.js 将自动停止
-echo ========================================
+if not exist "%CONFIG_FILE%" (
+	if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
+	call :promptCfProxy
+	> "%CONFIG_FILE%" (
+		echo server:
+		echo   listen: 3000
+		echo cfProxy: !CF_PROXY!
+		echo cfGoodIp: freeyx.cloudflare88.eu.org
+		echo rules:
+		echo   - MATCH,cfProxy
+	)
 
-REM 检查 node 是否可用
-where node >nul 2>&1
+	echo Created default config file: "%CONFIG_FILE%"
+)
+if exist "%CONFIG_FILE%" (
+	echo Using config file: "%CONFIG_FILE%"
+)
+
+where node >nul 2>nul
 if errorlevel 1 (
-    echo 错误: 未找到 node 命令，请确保 Node.js 已安装并添加到 PATH。
-    pause
-    exit /b 1
+	echo Node.js is not installed. Please install Node.js 22 or newer.
+	goto end
 )
 
-REM 检查 app.cjs 是否存在
-if not exist "app.cjs" (
-    echo 错误: 当前目录下未找到 app.cjs 文件。
-    pause
-    exit /b 1
+for /f "usebackq tokens=*" %%v in (`node -v 2^>nul`) do set "NODE_VERSION_RAW=%%v"
+if not defined NODE_VERSION_RAW (
+	echo Failed to detect Node.js version. Please reinstall Node.js 22 or newer.
+	goto end
 )
 
-REM 检查配置文件 config\config.yml
-if not exist "config\config.yml" goto :create_config
-goto :after_config
-
-:create_config
-echo 未找到配置文件 config\config.yml，需要生成。
-
-REM 创建 config 目录（如果不存在）
-if not exist config mkdir config
-
-REM 必须填写 cfProxy URL，无默认值
-:input_proxy
-set /p cfproxy=请输入 cfProxy 的 URL (例如 https://proxy.abc.cn/): 
-if "!cfproxy!"=="" (
-    echo 输入不能为空，请重新输入。
-    goto input_proxy
+for /f "tokens=1 delims=." %%m in ("%NODE_VERSION_RAW:v=%") do set "NODE_MAJOR=%%m"
+if not defined NODE_MAJOR (
+	echo Failed to parse Node.js version "%NODE_VERSION_RAW%".
+	goto end
 )
 
-REM 生成配置文件（使用 for 安全输出用户输入，避免特殊字符导致命令截断）
-echo 正在生成配置文件 config\config.yml ...
-(
-    echo server:
-    echo   listen: 3000
-) > config\config.yml
-for /f "delims=" %%a in ("!cfproxy!") do >> config\config.yml echo cfProxy: %%a
-(
-    echo cfGoodIp: freeyx.cloudflare88.eu.org
-    echo rules:
-    echo   - MATCH,cfProxy
-) >> config\config.yml
-
-echo 配置文件已生成。
-goto :after_config
-
-:after_config
-echo 启动 node app.cjs ...
-start /B node app.cjs
-
-REM 等待几秒让 Node.js 完成初始化
-echo 等待服务启动...
-timeout /t 3 /nobreak >nul
-
-REM 查找可用的浏览器 (优先 Edge，其次 Chrome)
-set "BROWSER="
-set "BROWSER_NAME="
-
-REM 检查 PATH 中的 msedge
-for %%i in (msedge.exe) do set "BROWSER=%%~$PATH:i" 2>nul
-if defined BROWSER (
-    set "BROWSER_NAME=Microsoft Edge"
-    goto :found_browser
-)
-
-REM 检查常见安装路径的 msedge
-set "EDGE_PATHS="C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" "C:\Program Files\Microsoft\Edge\Application\msedge.exe""
-for %%p in (%EDGE_PATHS%) do (
-    if exist %%p (
-        set "BROWSER=%%~p"
-        set "BROWSER_NAME=Microsoft Edge"
-        goto :found_browser
-    )
-)
-
-REM 检查 PATH 中的 chrome
-for %%i in (chrome.exe) do set "BROWSER=%%~$PATH:i" 2>nul
-if defined BROWSER (
-    set "BROWSER_NAME=Google Chrome"
-    goto :found_browser
-)
-
-REM 检查常见安装路径的 chrome
-set "CHROME_PATHS="C:\Program Files\Google\Chrome\Application\chrome.exe" "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe""
-for %%p in (%CHROME_PATHS%) do (
-    if exist %%p (
-        set "BROWSER=%%~p"
-        set "BROWSER_NAME=Google Chrome"
-        goto :found_browser
-    )
-)
-
-echo 错误: 未找到 Microsoft Edge 或 Google Chrome，请安装其中之一。
-pause
-exit /b 1
-
-:found_browser
-echo 找到浏览器: %BROWSER_NAME% (%BROWSER%)
-echo 启动浏览器（使用独立用户数据目录，忽略证书错误，代理指向本地 3000）...
-echo 请使用浏览器进行操作，关闭浏览器后脚本将自动退出。
-
-REM 直接启动浏览器并等待其退出（阻塞直到浏览器关闭）
-"%BROWSER%" --user-data-dir="%~dp0edgedata" --proxy-server="http://127.0.0.1:3000" --ignore-certificate-errors
-
-REM 浏览器已关闭，清理 Node.js 进程
-echo.
-echo 浏览器已关闭，正在停止 Node.js 服务...
-taskkill /F /IM node.exe >nul 2>&1
+set /a NODE_MAJOR_NUM=NODE_MAJOR+0 >nul 2>nul
 if errorlevel 1 (
-    echo 未能关闭 Node.js 进程，请手动检查。
+	echo Invalid Node.js version "%NODE_VERSION_RAW%".
+	goto end
+)
+
+if %NODE_MAJOR_NUM% LSS 22 (
+	echo Node.js version %NODE_VERSION_RAW% detected. Please upgrade to Node.js 22 or newer.
+	goto end
+)
+
+call :findBrowser
+if defined BROWSER_EXE (
+	if not exist "%USER_DATA_DIR%" mkdir "%USER_DATA_DIR%"
+	start "" "%BROWSER_EXE%" --user-data-dir="%USER_DATA_DIR%" --proxy-server="%PROXY_SERVER%" --ignore-certificate-errors
+	echo Browser started: "%BROWSER_EXE%"
 ) else (
-    echo Node.js 进程已关闭。
+	echo No supported browser found. Install Edge/Chrome/Brave/Chromium/Opera.
 )
 
-echo 脚本执行完毕，即将退出...
-exit /b 0
+if not exist "%APP_FILE%" (
+	echo App file not found: "%APP_FILE%"
+	goto end
+)
+
+echo Starting app: "%APP_FILE%"
+node "%APP_FILE%"
+
+:end
+echo.
+pause
+exit /b
+
+:promptCfProxy
+set "CF_PROXY="
+:promptCfProxyLoop
+echo Enter cfProxy URL (example: https://abc.com/)
+set /p "CF_PROXY=cfProxy: "
+if "!CF_PROXY!"=="" (
+	echo cfProxy cannot be empty. Please try again.
+	goto promptCfProxyLoop
+)
+exit /b
+
+:findBrowser
+set "BROWSER_EXE="
+
+for /f "delims=" %%p in ('where msedge.exe 2^>nul') do (
+	set "BROWSER_EXE=%%p"
+	goto :eof
+)
+
+if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
+	set "BROWSER_EXE=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
+	goto :eof
+)
+
+if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" (
+	set "BROWSER_EXE=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+	goto :eof
+)
+
+if exist "%LocalAppData%\Microsoft\Edge\Application\msedge.exe" (
+	set "BROWSER_EXE=%LocalAppData%\Microsoft\Edge\Application\msedge.exe"
+	goto :eof
+)
+
+for %%b in (chrome.exe brave.exe chromium.exe opera.exe launcher.exe) do (
+	for /f "delims=" %%p in ('where %%b 2^>nul') do (
+		set "BROWSER_EXE=%%p"
+		goto :eof
+	)
+)
+
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
+	set "BROWSER_EXE=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+	goto :eof
+)
+
+if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" (
+	set "BROWSER_EXE=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+	goto :eof
+)
+
+if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" (
+	set "BROWSER_EXE=%LocalAppData%\Google\Chrome\Application\chrome.exe"
+	goto :eof
+)
+
+if exist "%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe" (
+	set "BROWSER_EXE=%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"
+	goto :eof
+)
+
+if exist "%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe" (
+	set "BROWSER_EXE=%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe"
+	goto :eof
+)
+
+if exist "%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe" (
+	set "BROWSER_EXE=%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe"
+	goto :eof
+)
+
+if exist "%LocalAppData%\Chromium\Application\chrome.exe" (
+	set "BROWSER_EXE=%LocalAppData%\Chromium\Application\chrome.exe"
+	goto :eof
+)
+
+if exist "%ProgramFiles%\Opera\launcher.exe" (
+	set "BROWSER_EXE=%ProgramFiles%\Opera\launcher.exe"
+	goto :eof
+)
+
+if exist "%ProgramFiles(x86)%\Opera\launcher.exe" (
+	set "BROWSER_EXE=%ProgramFiles(x86)%\Opera\launcher.exe"
+	goto :eof
+)
+
+if exist "%AppData%\Opera Software\Opera Stable\launcher.exe" (
+	set "BROWSER_EXE=%AppData%\Opera Software\Opera Stable\launcher.exe"
+	goto :eof
+)
+
+goto :eof
