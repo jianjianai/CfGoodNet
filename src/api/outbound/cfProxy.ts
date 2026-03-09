@@ -12,8 +12,7 @@ import {
 import {
   buildProxyAuthorizationHeader,
   readHttpProxyConnectResponse,
-  buildCfProxyWebSocketUrl,
-  rewriteCfProxyLocation,
+  buildCfProxyWebSocketUrl
 } from "./utils.js";
 import {
   hopByHopHeaders,
@@ -22,6 +21,47 @@ import {
 } from "../proxy-handler.js";
 import type { Outbound } from "./types.js";
 import { DIRECToutbound } from "./direct.js";
+
+/**
+ * 将 cfProxy 返回的重定向地址还原成客户端可直接访问的原始目标地址。
+ */
+function rewriteCfProxyLocation(location: string, cfProxy: URL, proxyBasePath: string): string {
+  const directPrefix = `${cfProxy.origin}${proxyBasePath}`;
+  if (location.startsWith(directPrefix)) {
+    const restored = location.slice(directPrefix.length);
+    if (restored.startsWith("http://") || restored.startsWith("https://")) {
+      return restored;
+    }
+  }
+
+  const fallbackPrefix = `${cfProxy.origin}/`;
+  if (location.startsWith(fallbackPrefix)) {
+    const restored = location.slice(fallbackPrefix.length);
+    if (restored.startsWith("http://") || restored.startsWith("https://")) {
+      return restored;
+    }
+  }
+
+  return location;
+}
+
+
+/**
+ * 将 ws/wss 目标映射为 cfProxy 约定的 ws/wss 入口与 http/https 目标路径。
+ */
+function buildCfProxyWebSocketUrl(targetUrl: URL, cfProxy: URL): URL {
+  const cfProxyPath = cfProxy.pathname.endsWith("/")
+    ? cfProxy.pathname
+    : `${cfProxy.pathname}/`;
+
+  const mappedScheme = targetUrl.protocol === "wss:" ? "https://" : "http://";
+  const mappedTarget = `${mappedScheme}${targetUrl.host}${targetUrl.pathname}${targetUrl.search}`;
+
+  const upstreamProtocol =
+    cfProxy.protocol === "https:" ? "wss:" : cfProxy.protocol === "http:" ? "ws:" : cfProxy.protocol;
+
+  return new URL(`${upstreamProtocol}//${cfProxy.host}${cfProxyPath}${mappedTarget}`);
+}
 
 export const cfProxyOutbound: Outbound = {
   handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL, ruleText: string) {
