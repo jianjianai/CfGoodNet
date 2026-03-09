@@ -1,4 +1,5 @@
 import { type Socket } from "node:net";
+import type { Rule } from "../rule/index.js";
 
 
 
@@ -15,13 +16,13 @@ export function buildProxyAuthorizationHeader(auth: string | undefined): string 
 /**
  * 生成两行代理日志：第一行规则与代理，第二行目标 URL。
  */
-export function formatProxyLogBlock(ruleText: string, url: string): string {
+export function formatProxyLogBlock(label:Rule, url: string): string {
   const maxWidth = typeof process.stdout.columns === "number" && process.stdout.columns > 0
     ? process.stdout.columns
     : 120;
   const clip = (input: string) => (input.length <= maxWidth ? input : input.slice(0, maxWidth));
 
-  const firstLine = clip(`[PORXY] ${ruleText}`);
+  const firstLine = clip(`[PROXY] ${label.type}: ${label.pattern} => ${label.action}`);
   const secondLine = clip(url);
   return `${firstLine}\n${secondLine}`;
 }

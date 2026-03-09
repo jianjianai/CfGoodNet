@@ -11,7 +11,6 @@ export interface Outbound {
     clientReq: IncomingMessage,
     clientRes: ServerResponse,
     targetUrl: URL,
-    ruleText: string,
   ): void;
 
   handleUpgrade(
@@ -19,6 +18,5 @@ export interface Outbound {
     clientSocket: Socket,
     head: Buffer,
     targetUrl: URL,
-    ruleText: string,
   ): void;
 }

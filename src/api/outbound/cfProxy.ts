@@ -62,7 +62,7 @@ function buildCfProxyWebSocketUrl(targetUrl: URL, cfProxy: URL): URL {
 }
 
 export const cfProxyOutbound: Outbound = {
-  handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL, ruleText: string) {
+  handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL) {
     // 如果 cfProxy 未配置则拒绝请求并记录日志
     if (!cfProxyUrl) {
       console.warn("[proxy] cfProxy rule matched but cfProxy is not configured, rejecting request");
@@ -132,7 +132,7 @@ export const cfProxyOutbound: Outbound = {
     clientReq.pipe(upstreamRequest);
   },
 
-  handleUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer, targetUrl: URL, ruleText: string) {
+  handleUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer, targetUrl: URL) {
     // 如果 cfProxy 未配置则拒绝请求并记录日志
     if (!cfProxyUrl) {
       console.warn("[proxy] cfProxy rule matched for websocket but cfProxy is not configured, rejecting upgrade");

@@ -1,9 +1,6 @@
 import { type IncomingMessage, type ServerResponse, } from "node:http";
-import {
-  resolveProxyRuleByHostname,
-} from "../config.js";
+import { matchRule } from "./rule/index.js";
 import { type Socket } from "node:net";
-import { outbounds } from "./outbound/index.js";
 import { formatProxyLogBlock } from "./outbound/utils.js";
 
 export const hopByHopHeaders = [
@@ -128,19 +125,16 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
     return;
   }
 
-  const { action: proxyAction, ruleText } = resolveProxyRuleByHostname(targetUrl);
-
-  // log rule and target URL (proxyRul no longer used)
-  console.log(formatProxyLogBlock(ruleText, targetUrl.href));
-
-  const handler = outbounds[proxyAction];
-  if (!handler) {
+  const matched = matchRule(targetUrl.href);
+  if (!matched) {
     clientRes.writeHead(502, { "Content-Type": "text/plain" });
-    clientRes.end("No outbound handler for action");
+    clientRes.end("No proxy rule matched");
     return;
   }
 
-  handler.handleRequest(clientReq, clientRes, targetUrl, ruleText);
+  // log action and target URL
+  console.log(formatProxyLogBlock(matched, targetUrl.href));
+  matched.actionOutbound.handleRequest(clientReq, clientRes, targetUrl);
 }
 
 /**
@@ -161,13 +155,12 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
     return;
   }
 
-  const { action: proxyAction, ruleText } = resolveProxyRuleByHostname(targetUrl);
-  console.log(formatProxyLogBlock(ruleText, targetUrl.href));
-  const handler = outbounds[proxyAction];
-  if (!handler) {
-    writeHttpError(clientSocket, 502, "No outbound handler for action");
+  const matched = matchRule(targetUrl.href);
+  if (!matched) {
+    writeHttpError(clientSocket, 502, "No proxy rule matched");
     return;
   }
 
-  handler.handleUpgrade(clientReq, clientSocket, head, targetUrl, ruleText);
+  console.log(formatProxyLogBlock(matched, targetUrl.href));
+  matched.actionOutbound.handleUpgrade(clientReq, clientSocket, head, targetUrl);
 }

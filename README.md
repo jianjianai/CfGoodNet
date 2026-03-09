@@ -140,7 +140,7 @@ rules:
 代理日志格式：
 
 ```text
-[PORXY] <ruleText> <proxyRul>
+[PORXY] <action> <proxyRul>
 <url>
 ```
 

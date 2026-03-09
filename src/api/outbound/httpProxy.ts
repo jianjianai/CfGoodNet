@@ -18,7 +18,7 @@ import {
 import type { Outbound } from "./types.js";
 
 export const httpProxyOutbound: Outbound = {
-  handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL, ruleText: string) {
+  handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL) {
     // 未配置 HTTP 代理则拒绝
     if (!httpProxyHost || !httpProxyPort) {
       console.warn("[proxy] httpProxy rule matched but httpProxy is not configured, rejecting request");
@@ -70,7 +70,7 @@ export const httpProxyOutbound: Outbound = {
     clientReq.pipe(upstreamRequest);
   },
 
-  handleUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer, targetUrl: URL, ruleText: string) {
+  handleUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer, targetUrl: URL) {
     // 未配置 HTTP 代理则拒绝升级
     if (!httpProxyHost || !httpProxyPort) {
       console.warn("[proxy] httpProxy rule matched for websocket but httpProxy is not configured, rejecting upgrade");

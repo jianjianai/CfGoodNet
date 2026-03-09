@@ -11,7 +11,7 @@ import type { Outbound } from "./types.js";
 
 // 直接直连的出站实现
 export const DIRECToutbound: Outbound = {
-  handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL, ruleText: string) {
+  handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL) {
     const method = clientReq.method ?? "GET";
 
     // 清理不可转发的 hop-by-hop 头
@@ -52,7 +52,7 @@ export const DIRECToutbound: Outbound = {
     clientReq.pipe(upstreamRequest);
   },
 
-  handleUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer, targetUrl: URL, ruleText: string) {
+  handleUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer, targetUrl: URL) {
     const isSecureTarget =
       targetUrl.protocol === "wss:" ||
       targetUrl.protocol === "https:";
