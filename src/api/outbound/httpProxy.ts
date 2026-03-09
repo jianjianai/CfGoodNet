@@ -19,6 +19,14 @@ import type { Outbound } from "./types.js";
 
 export const httpProxyOutbound: Outbound = {
   handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL, ruleText: string) {
+    // 未配置 HTTP 代理则拒绝
+    if (!httpProxyHost || !httpProxyPort) {
+      console.warn("[proxy] httpProxy rule matched but httpProxy is not configured, rejecting request");
+      clientRes.writeHead(502, { "Content-Type": "text/plain" });
+      clientRes.end("httpProxy not configured");
+      return;
+    }
+
     const method = clientReq.method ?? "GET";
 
     const headers = { ...clientReq.headers };
@@ -63,6 +71,13 @@ export const httpProxyOutbound: Outbound = {
   },
 
   handleUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer, targetUrl: URL, ruleText: string) {
+    // 未配置 HTTP 代理则拒绝升级
+    if (!httpProxyHost || !httpProxyPort) {
+      console.warn("[proxy] httpProxy rule matched for websocket but httpProxy is not configured, rejecting upgrade");
+      writeHttpError(clientSocket, 502, "httpProxy not configured");
+      return;
+    }
+
     const isSecureTarget =
       targetUrl.protocol === "wss:" ||
       targetUrl.protocol === "https:";

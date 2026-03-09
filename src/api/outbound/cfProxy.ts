@@ -19,7 +19,6 @@ import {
   writeHttpError,
 } from "../proxy-handler.js";
 import type { Outbound } from "./types.js";
-import { DIRECToutbound } from "./direct.js";
 
 /**
  * 将 cfProxy 返回的重定向地址还原成客户端可直接访问的原始目标地址。
@@ -64,10 +63,11 @@ function buildCfProxyWebSocketUrl(targetUrl: URL, cfProxy: URL): URL {
 
 export const cfProxyOutbound: Outbound = {
   handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL, ruleText: string) {
-    // 将目标地址嵌入到 cfProxy URL
+    // 如果 cfProxy 未配置则拒绝请求并记录日志
     if (!cfProxyUrl) {
-      // 没有配置时退回到直接连接
-      DIRECToutbound.handleRequest(clientReq, clientRes, targetUrl, ruleText);
+      console.warn("[proxy] cfProxy rule matched but cfProxy is not configured, rejecting request");
+      clientRes.writeHead(502, { "Content-Type": "text/plain" });
+      clientRes.end("cfProxy not configured");
       return;
     }
 
@@ -130,24 +130,18 @@ export const cfProxyOutbound: Outbound = {
     });
 
     clientReq.pipe(upstreamRequest);
-
-    function DIRECTfallback() {
-      // 退回到普通的直接处理逻辑
-      const fakeOutbound = require("./direct.js").DIRECToutbound as Outbound;
-      fakeOutbound.handleRequest(clientReq, clientRes, targetUrl, ruleText);
-    }
   },
 
   handleUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer, targetUrl: URL, ruleText: string) {
+    // 如果 cfProxy 未配置则拒绝请求并记录日志
     if (!cfProxyUrl) {
-      // 退化到直连
-      DIRECToutbound.handleUpgrade(clientReq, clientSocket, head, targetUrl, ruleText);
+      console.warn("[proxy] cfProxy rule matched for websocket but cfProxy is not configured, rejecting upgrade");
+      writeHttpError(clientSocket, 502, "cfProxy not configured");
       return;
     }
 
     let effectiveTargetUrl = buildCfProxyWebSocketUrl(targetUrl, cfProxyUrl);
     const cfProxyConnectIp = getCfGoodResolvedIp();
-    const proxyRul = cfProxyUrl.href;
 
     const isSecureTarget =
       effectiveTargetUrl.protocol === "wss:" ||

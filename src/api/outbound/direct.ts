@@ -21,7 +21,6 @@ export const DIRECToutbound: Outbound = {
     }
 
     const upstreamUrl = targetUrl;
-    const proxyRul = "localhost";
     const upstreamHeaders = { ...headers, host: upstreamUrl.host };
 
     const upstreamRequest = (upstreamUrl.protocol === "https:" ? httpsRequest : httpRequest)(
@@ -67,7 +66,6 @@ export const DIRECToutbound: Outbound = {
       }
     };
 
-    const proxyRul = "localhost";
 
     const attachUpgradeTunnel = (
       upstreamSocket: Socket | TLSSocket,
