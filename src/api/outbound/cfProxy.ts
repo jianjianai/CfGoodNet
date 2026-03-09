@@ -11,7 +11,6 @@ import {
 } from "../../config.js";
 import {
   buildProxyAuthorizationHeader,
-  formatProxyLogBlock,
   readHttpProxyConnectResponse,
   buildCfProxyWebSocketUrl,
   rewriteCfProxyLocation,
@@ -52,8 +51,6 @@ export const cfProxyOutbound: Outbound = {
     const shouldRewriteCfLocation = true;
 
     const upstreamHeaders = { ...headers, host: upstreamUrl.host };
-
-    console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
 
     const upstreamRequest = (upstreamUrl.protocol === "https:" ? httpsRequest : httpRequest)(
       {
@@ -128,7 +125,6 @@ export const cfProxyOutbound: Outbound = {
       }
     };
 
-    console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
 
     const attachUpgradeTunnel = (
       upstreamSocket: Socket | TLSSocket,

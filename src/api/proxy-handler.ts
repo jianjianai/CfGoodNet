@@ -1,7 +1,10 @@
 import { type IncomingMessage, type ServerResponse, } from "node:http";
-import { resolveProxyRuleByHostname } from "../config.js";
+import {
+  resolveProxyRuleByHostname,
+} from "../config.js";
 import { type Socket } from "node:net";
 import { outbounds } from "./outbound/index.js";
+import { formatProxyLogBlock } from "./outbound/utils.js";
 
 export const hopByHopHeaders = [
   "connection",
@@ -126,6 +129,10 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
   }
 
   const { action: proxyAction, ruleText } = resolveProxyRuleByHostname(targetUrl);
+
+  // log rule and target URL (proxyRul no longer used)
+  console.log(formatProxyLogBlock(ruleText, targetUrl.href));
+
   const handler = outbounds[proxyAction];
   if (!handler) {
     clientRes.writeHead(502, { "Content-Type": "text/plain" });
@@ -155,6 +162,7 @@ export function handleProxyUpgrade(clientReq: IncomingMessage, clientSocket: Soc
   }
 
   const { action: proxyAction, ruleText } = resolveProxyRuleByHostname(targetUrl);
+  console.log(formatProxyLogBlock(ruleText, targetUrl.href));
   const handler = outbounds[proxyAction];
   if (!handler) {
     writeHttpError(clientSocket, 502, "No outbound handler for action");

@@ -8,7 +8,6 @@ import {
 } from "../../config.js";
 import {
   buildProxyAuthorizationHeader,
-  formatProxyLogBlock,
   readHttpProxyConnectResponse,
 } from "./utils.js";
 import {
@@ -36,8 +35,6 @@ export const httpProxyOutbound: Outbound = {
     if (proxyAuthorization) {
       upstreamHeaders["proxy-authorization"] = proxyAuthorization;
     }
-
-    console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
 
     const upstreamRequest = httpRequest(
       {
@@ -83,7 +80,6 @@ export const httpProxyOutbound: Outbound = {
       }
     };
 
-    console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
 
     // 先跟 http 代理建立 TCP 连接，随后发送 CONNECT 请求
     const proxySocket = connectSocket({

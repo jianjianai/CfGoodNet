@@ -6,9 +6,6 @@ import {
   httpProxyAuth,
 } from "../../config.js";
 import {
-  formatProxyLogBlock,
-} from "./utils.js";
-import {
   hopByHopHeaders,
   buildUpstreamUpgradeRequest,
   writeHttpError,
@@ -29,9 +26,6 @@ export const DIRECToutbound: Outbound = {
     const upstreamUrl = targetUrl;
     const proxyRul = "localhost";
     const upstreamHeaders = { ...headers, host: upstreamUrl.host };
-
-    // 日志输出
-    console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
 
     const upstreamRequest = (upstreamUrl.protocol === "https:" ? httpsRequest : httpRequest)(
       {
@@ -77,7 +71,6 @@ export const DIRECToutbound: Outbound = {
     };
 
     const proxyRul = "localhost";
-    console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
 
     const attachUpgradeTunnel = (
       upstreamSocket: Socket | TLSSocket,

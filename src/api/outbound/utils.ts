@@ -54,13 +54,13 @@ export function buildProxyAuthorizationHeader(auth: string | undefined): string 
 /**
  * 生成两行代理日志：第一行规则与代理，第二行目标 URL。
  */
-export function formatProxyLogBlock(ruleText: string, proxyRul: string, url: string): string {
+export function formatProxyLogBlock(ruleText: string, url: string): string {
   const maxWidth = typeof process.stdout.columns === "number" && process.stdout.columns > 0
     ? process.stdout.columns
     : 120;
   const clip = (input: string) => (input.length <= maxWidth ? input : input.slice(0, maxWidth));
 
-  const firstLine = clip(`[PORXY] ${ruleText} ${proxyRul}`);
+  const firstLine = clip(`[PORXY] ${ruleText}`);
   const secondLine = clip(url);
   return `${firstLine}\n${secondLine}`;
 }
