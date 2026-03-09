@@ -3,9 +3,6 @@ import { request as httpsRequest } from "node:https";
 import { Socket, connect as connectSocket } from "node:net";
 import { connect as connectTlsSocket, TLSSocket } from "node:tls";
 import {
-  httpProxyAuth,
-} from "../../config.js";
-import {
   hopByHopHeaders,
   buildUpstreamUpgradeRequest,
   writeHttpError,

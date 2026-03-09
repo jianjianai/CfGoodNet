@@ -11,8 +11,7 @@ import {
 } from "../../config.js";
 import {
   buildProxyAuthorizationHeader,
-  readHttpProxyConnectResponse,
-  buildCfProxyWebSocketUrl
+  readHttpProxyConnectResponse
 } from "./utils.js";
 import {
   hopByHopHeaders,
