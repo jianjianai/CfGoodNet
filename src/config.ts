@@ -253,8 +253,8 @@ export const proxyRules = rawRules
   .map((rule: unknown) => parseRuleLine(rule))
   .filter((rule: ParsedRule | null): rule is ParsedRule => rule !== null);
 
-export function resolveProxyRuleByHostname(hostname: string): ResolvedProxyRule {
-  const normalizedHostname = hostname.trim().toLowerCase();
+export function resolveProxyRuleByHostname(url: URL): ResolvedProxyRule {
+  const normalizedHostname = url.hostname.toLowerCase();
   if (!normalizedHostname) {
     return {
       action: "DIRECT",
@@ -277,8 +277,8 @@ export function resolveProxyRuleByHostname(hostname: string): ResolvedProxyRule 
   };
 }
 
-export function resolveProxyActionByHostname(hostname: string): ProxyAction {
-  return resolveProxyRuleByHostname(hostname).action;
+export function resolveProxyActionByHostname(url: URL): ProxyAction {
+  return resolveProxyRuleByHostname(url).action;
 }
 
 let cfGoodResolvedIp: string | undefined;

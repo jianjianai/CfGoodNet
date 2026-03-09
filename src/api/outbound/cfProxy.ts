@@ -1,0 +1,227 @@
+import { IncomingMessage, ServerResponse, request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { Socket, connect as connectSocket } from "node:net";
+import { connect as connectTlsSocket, TLSSocket } from "node:tls";
+import {
+  cfProxyUrl,
+  getCfGoodResolvedIp,
+  httpProxyAuth,
+  httpProxyHost,
+  httpProxyPort,
+} from "../../config.js";
+import {
+  buildProxyAuthorizationHeader,
+  formatProxyLogBlock,
+  readHttpProxyConnectResponse,
+  buildCfProxyWebSocketUrl,
+  rewriteCfProxyLocation,
+} from "./utils.js";
+import {
+  hopByHopHeaders,
+  buildUpstreamUpgradeRequest,
+  writeHttpError,
+} from "../proxy-handler.js";
+import type { Outbound } from "./types.js";
+import { DIRECToutbound } from "./direct.js";
+
+export const cfProxyOutbound: Outbound = {
+  handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse, targetUrl: URL, ruleText: string) {
+    // 将目标地址嵌入到 cfProxy URL
+    if (!cfProxyUrl) {
+      // 没有配置时退回到直接连接
+      DIRECToutbound.handleRequest(clientReq, clientRes, targetUrl, ruleText);
+      return;
+    }
+
+    const method = clientReq.method ?? "GET";
+
+    const headers = { ...clientReq.headers };
+    for (const headerName of hopByHopHeaders) {
+      delete headers[headerName];
+    }
+
+    const proxyBasePath = cfProxyUrl.pathname.endsWith("/")
+      ? cfProxyUrl.pathname
+      : `${cfProxyUrl.pathname}/`;
+    const proxyUrl = `${cfProxyUrl.origin}${proxyBasePath}${targetUrl.href}`;
+    const upstreamUrl = new URL(proxyUrl);
+    const matchedCfProxyUrl = cfProxyUrl;
+    const cfProxyConnectIp = getCfGoodResolvedIp();
+    const proxyRul = cfProxyUrl.href;
+    const cfProxyPath = proxyBasePath;
+    const shouldRewriteCfLocation = true;
+
+    const upstreamHeaders = { ...headers, host: upstreamUrl.host };
+
+    console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
+
+    const upstreamRequest = (upstreamUrl.protocol === "https:" ? httpsRequest : httpRequest)(
+      {
+        protocol: upstreamUrl.protocol,
+        hostname: cfProxyConnectIp ?? upstreamUrl.hostname,
+        port: upstreamUrl.port || undefined,
+        servername: upstreamUrl.hostname,
+        method,
+        path: `${upstreamUrl.pathname}${upstreamUrl.search}`,
+        headers: upstreamHeaders,
+      },
+      (upstreamResponse) => {
+        const responseHeaders = { ...upstreamResponse.headers };
+        const locationHeader = upstreamResponse.headers.location;
+        if (
+          shouldRewriteCfLocation &&
+          matchedCfProxyUrl &&
+          typeof locationHeader === "string"
+        ) {
+          responseHeaders.location = rewriteCfProxyLocation(
+            locationHeader,
+            matchedCfProxyUrl,
+            cfProxyPath,
+          );
+        }
+
+        clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
+        upstreamResponse.pipe(clientRes);
+      },
+    );
+
+    upstreamRequest.on("error", (error) => {
+      console.error("[proxy] upstream http request failed", error);
+      if (!clientRes.headersSent) {
+        clientRes.writeHead(502, { "Content-Type": "text/plain" });
+      }
+      clientRes.end("Bad Gateway");
+    });
+
+    clientReq.pipe(upstreamRequest);
+
+    function DIRECTfallback() {
+      // 退回到普通的直接处理逻辑
+      const fakeOutbound = require("./direct.js").DIRECToutbound as Outbound;
+      fakeOutbound.handleRequest(clientReq, clientRes, targetUrl, ruleText);
+    }
+  },
+
+  handleUpgrade(clientReq: IncomingMessage, clientSocket: Socket, head: Buffer, targetUrl: URL, ruleText: string) {
+    if (!cfProxyUrl) {
+      // 退化到直连
+      DIRECToutbound.handleUpgrade(clientReq, clientSocket, head, targetUrl, ruleText);
+      return;
+    }
+
+    let effectiveTargetUrl = buildCfProxyWebSocketUrl(targetUrl, cfProxyUrl);
+    const cfProxyConnectIp = getCfGoodResolvedIp();
+    const proxyRul = cfProxyUrl.href;
+
+    const isSecureTarget =
+      effectiveTargetUrl.protocol === "wss:" ||
+      effectiveTargetUrl.protocol === "https:";
+    const targetPort = Number(
+      effectiveTargetUrl.port || (isSecureTarget ? "443" : "80"),
+    );
+    const proxyAuthorization = buildProxyAuthorizationHeader(httpProxyAuth);
+
+    const onUpstreamError = (error: Error) => {
+      console.error("[proxy] upstream websocket tunnel failed", error);
+      if (!clientSocket.destroyed) {
+        writeHttpError(clientSocket, 502, "Bad Gateway");
+      }
+    };
+
+    console.log(formatProxyLogBlock(ruleText, proxyRul, targetUrl.href));
+
+    const attachUpgradeTunnel = (
+      upstreamSocket: Socket | TLSSocket,
+      alreadyConnected: boolean,
+    ) => {
+      upstreamSocket.once("error", onUpstreamError);
+
+      const onReady = () => {
+        upstreamSocket.off("error", onUpstreamError);
+        console.log(`[proxy] websocket ${targetUrl.protocol}//${targetUrl.host}`);
+
+        upstreamSocket.write(
+          buildUpstreamUpgradeRequest(
+            clientReq,
+            `${effectiveTargetUrl.pathname}${effectiveTargetUrl.search}`,
+            effectiveTargetUrl.host,
+          ),
+        );
+        if (head.length > 0) {
+          upstreamSocket.write(head);
+        }
+
+        clientSocket.pipe(upstreamSocket);
+        upstreamSocket.pipe(clientSocket);
+      };
+
+      if (isSecureTarget) {
+        upstreamSocket.once("secureConnect", onReady);
+      } else if (alreadyConnected) {
+        onReady();
+      } else {
+        upstreamSocket.once("connect", onReady);
+      }
+    };
+
+    // 直接或通过 HTTP 代理连接到 cfProxy 上游
+    const connectHost = cfProxyConnectIp ?? effectiveTargetUrl.hostname;
+    if (!httpProxyHost || !httpProxyPort) {
+      const directUpstreamSocket: Socket | TLSSocket = isSecureTarget
+        ? connectTlsSocket({
+            host: connectHost,
+            port: targetPort,
+            servername: effectiveTargetUrl.hostname,
+          })
+        : connectSocket({
+            host: connectHost,
+            port: targetPort,
+          });
+      attachUpgradeTunnel(directUpstreamSocket, false);
+    } else {
+      const proxySocket = connectSocket({
+        host: httpProxyHost,
+        port: Number(httpProxyPort),
+      });
+
+      proxySocket.once("error", onUpstreamError);
+      proxySocket.once("connect", () => {
+        const connectHeaders = [
+          `CONNECT ${effectiveTargetUrl.host} HTTP/1.1`,
+          `Host: ${effectiveTargetUrl.host}`,
+        ];
+        if (proxyAuthorization) {
+          connectHeaders.push(`Proxy-Authorization: ${proxyAuthorization}`);
+        }
+        connectHeaders.push("", "");
+        proxySocket.write(connectHeaders.join("\r\n"));
+
+        readHttpProxyConnectResponse(
+          proxySocket,
+          (statusCode, rest) => {
+            if (statusCode !== 200) {
+              onUpstreamError(new Error(`proxy CONNECT failed with status ${statusCode}`));
+              return;
+            }
+
+            if (rest.length > 0) {
+              proxySocket.unshift(rest);
+            }
+
+            if (isSecureTarget) {
+              const tlsTunnelSocket = connectTlsSocket({
+                socket: proxySocket,
+                servername: effectiveTargetUrl.hostname,
+              });
+              attachUpgradeTunnel(tlsTunnelSocket, false);
+              return;
+            }
+
+            attachUpgradeTunnel(proxySocket, true);
+          },
+          onUpstreamError,
+        );
+      });
+    }
+  },
+};
