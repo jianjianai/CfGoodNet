@@ -28,6 +28,7 @@ server:
   listen: 3000
 cfProxy: http://test.com/
 cfGoodIp: freeyx.cloudflare88.eu.org
+cfXForwardedForHeader: freeyx.cloudflare88.eu.org
 httpProxy:
   host: 127.0.0.1
   port: 7897
@@ -75,6 +76,10 @@ export const cfGoodIp =
   typeof configYaml.cfGoodIp === "string" && configYaml.cfGoodIp.trim() !== ""
     ? configYaml.cfGoodIp.trim()
     : undefined;
+export const cfXForwardedForHeader =
+  typeof configYaml.cfXForwardedForHeader === "string" && configYaml.cfXForwardedForHeader.trim() !== ""
+    ? configYaml.cfXForwardedForHeader.trim()
+    : undefined;
 export const httpProxyHost =
   typeof configYaml.httpProxy?.host === "string" && configYaml.httpProxy.host.trim() !== ""
     ? configYaml.httpProxy.host.trim()
@@ -86,29 +91,46 @@ export const httpProxyAuth =
     : undefined;
 
 let cfGoodResolvedIp: string | undefined;
+let cfXForwardedForResolvedIp: string | undefined;
 
 export async function initCfGoodIp(): Promise<void> {
-  if (!cfGoodIp) {
-    return;
+  if (cfGoodIp) {
+    if (isIP(cfGoodIp) !== 0) {
+      cfGoodResolvedIp = cfGoodIp;
+      console.log(`[proxy] cfGoodIp: ${cfGoodResolvedIp}`);
+    } else {
+      try {
+        const result = await lookup(cfGoodIp, { family: 0, all: false, verbatim: true });
+        cfGoodResolvedIp = result.address;
+        console.log(`[proxy] cfGoodIp: ${cfGoodResolvedIp}`);
+      } catch (error) {
+        console.warn(`[proxy] cfGoodIp resolve failed: ${cfGoodIp}`, error);
+      }
+    }
   }
 
-  if (isIP(cfGoodIp) !== 0) {
-    cfGoodResolvedIp = cfGoodIp;
-    console.log(`[proxy] cfGoodIp: ${cfGoodResolvedIp}`);
-    return;
-  }
-
-  try {
-    const result = await lookup(cfGoodIp, { family: 0, all: false, verbatim: true });
-    cfGoodResolvedIp = result.address;
-    console.log(`[proxy] cfGoodIp: ${cfGoodResolvedIp}`);
-  } catch (error) {
-    console.warn(`[proxy] cfGoodIp resolve failed: ${cfGoodIp}`, error);
+  if (cfXForwardedForHeader) {
+    if (isIP(cfXForwardedForHeader) !== 0) {
+      cfXForwardedForResolvedIp = cfXForwardedForHeader;
+      console.log(`[proxy] cfXForwardedForHeader: ${cfXForwardedForResolvedIp}`);
+    } else {
+      try {
+        const result = await lookup(cfXForwardedForHeader, { family: 0, all: false, verbatim: true });
+        cfXForwardedForResolvedIp = result.address;
+        console.log(`[proxy] cfXForwardedForHeader: ${cfXForwardedForResolvedIp}`);
+      } catch (error) {
+        console.warn(`[proxy] cfXForwardedForHeader resolve failed: ${cfXForwardedForHeader}`, error);
+      }
+    }
   }
 }
 
 export function getCfGoodResolvedIp(): string | undefined {
   return cfGoodResolvedIp;
+}
+
+export function getCfXForwardedForResolvedIp(): string | undefined {
+  return cfXForwardedForResolvedIp;
 }
 
 

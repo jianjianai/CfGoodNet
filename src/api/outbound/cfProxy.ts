@@ -5,6 +5,7 @@ import { connect as connectTlsSocket, TLSSocket } from "node:tls";
 import {
   cfProxyUrl,
   getCfGoodResolvedIp,
+  getCfXForwardedForResolvedIp,
   httpProxyAuth,
   httpProxyHost,
   httpProxyPort,
@@ -89,7 +90,14 @@ export const cfProxyOutbound: Outbound = {
     const cfProxyPath = proxyBasePath;
     const shouldRewriteCfLocation = true;
 
-    const upstreamHeaders = { ...headers, host: upstreamUrl.host };
+    const upstreamHeaders: Record<string, string | string[] | undefined> = {
+      ...headers,
+      host: upstreamUrl.host,
+    };
+    const xForwardedFor = getCfXForwardedForResolvedIp();
+    if (xForwardedFor) {
+      upstreamHeaders["x-forwarded-for"] = xForwardedFor;
+    }
 
     const upstreamRequest = (upstreamUrl.protocol === "https:" ? httpsRequest : httpRequest)(
       {

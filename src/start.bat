@@ -21,11 +21,13 @@ set "APP_FILE=%SCRIPT_DIR%app.cjs"
 if not exist "%CONFIG_FILE%" (
 	if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
 	call :promptCfProxy
+	call :generateRandomCfXForwardedForHeader
 	> "%CONFIG_FILE%" (
 		echo server:
 		echo   listen: 3000
 		echo cfProxy: !CF_PROXY!
 		echo cfGoodIp: freeyx.cloudflare88.eu.org
+		echo cfXForwardedForHeader: !CF_X_FORWARDED_FOR_IP!
 		echo rules:
 		echo   - MATCH,cfProxy
 	)
@@ -96,6 +98,12 @@ if "!CF_PROXY!"=="" (
 	echo cfProxy cannot be empty. Please try again.
 	goto promptCfProxyLoop
 )
+exit /b
+
+:generateRandomCfXForwardedForHeader
+set /a XFF_OCTET_3=!RANDOM! %% 256
+set /a XFF_OCTET_4=!RANDOM! %% 256
+set "CF_X_FORWARDED_FOR_IP=1.186.!XFF_OCTET_3!.!XFF_OCTET_4!"
 exit /b
 
 :findBrowser

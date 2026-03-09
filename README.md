@@ -39,6 +39,10 @@ cfProxy: http://test.com/
 # 支持域名 / IPv4 / IPv6
 cfGoodIp: freeyx.cloudflare88.eu.org
 
+# 可选：命中 cfProxy 时追加 X-Forwarded-For 请求头
+# 支持域名 / IPv4 / IPv6（域名会在启动时解析为 IP）
+cfXForwardedForHeader: 1.32.234.15
+
 httpProxy:
   host: 127.0.0.1
   port: 7897
@@ -59,6 +63,7 @@ rules:
 - `server.listen`: 本地代理监听端口，默认 `3000`
 - `cfProxy`: `cfProxy` 动作使用的上游 URL
 - `cfGoodIp`: 可选，覆盖 `cfProxy` 的实际 TCP 连接目标
+- `cfXForwardedForHeader`: 可选，命中 `cfProxy` 时为上游请求追加 `X-Forwarded-For`
 - `httpProxy.host`: `httpProxy` 动作使用的代理主机
 - `httpProxy.port`: `httpProxy` 动作使用的代理端口
 - `httpProxy.auth`: 可选，`username:password`，会自动转成 `Proxy-Authorization`
@@ -109,6 +114,20 @@ rules:
   - HTTP(S) 与 WebSocket 都会应用该策略
 
 若 `cfGoodIp` 未配置或解析失败，则回退为 `cfProxy` 的默认 DNS 解析。
+
+## cfXForwardedForHeader 行为说明
+
+当配置了 `cfXForwardedForHeader`：
+
+- 启动阶段：
+  - 若是 IP（v4/v6），直接使用该 IP
+  - 若是域名，启动时解析一次并使用解析结果
+  - 会打印日志：`[proxy] cfXForwardedForHeader: <ip>`
+
+- 命中 `cfProxy` 的 HTTP/HTTPS 请求时：
+  - 自动追加 `X-Forwarded-For: <ip>` 请求头
+
+若 `cfXForwardedForHeader` 未配置或解析失败，则不会追加该请求头。
 
 ## HTTP 转发说明
 
