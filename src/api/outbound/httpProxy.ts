@@ -34,12 +34,10 @@ export const httpProxyOutbound: Outbound = {
       delete headers[headerName];
     }
 
-    const upstreamUrl = targetUrl;
-    const proxyRul = `http://${httpProxyHost}:${httpProxyPort}`;
     const proxyAuthorization = buildProxyAuthorizationHeader(httpProxyAuth);
 
-    // headers 对象中部分字段可能为 undefined，强制转换为字符串键值对用于发送
-    const upstreamHeaders: Record<string, string> = { ...headers, host: upstreamUrl.href } as unknown as Record<string, string>;
+    // Host 必须是 host[:port]，不能是完整 URL，否则上游代理会把它当域名解析失败。
+    const upstreamHeaders: Record<string, string> = { ...headers, host: targetUrl.host } as unknown as Record<string, string>;
     if (proxyAuthorization) {
       upstreamHeaders["proxy-authorization"] = proxyAuthorization;
     }
@@ -49,7 +47,7 @@ export const httpProxyOutbound: Outbound = {
         hostname: httpProxyHost,
         port: Number(httpProxyPort),
         method,
-        path: upstreamUrl.href,
+        path: targetUrl.href,
         headers: upstreamHeaders,
       },
       (upstreamResponse) => {

@@ -22,7 +22,7 @@ export function formatProxyLogBlock(label:Rule, url: string): string {
     : 120;
   const clip = (input: string) => (input.length <= maxWidth ? input : input.slice(0, maxWidth));
 
-  const firstLine = clip(`[PROXY] ${label.type}: ${label.pattern} => ${label.action}`);
+  const firstLine = clip(`[PROXY] ${label.type}: ${label.pattern || ""} => ${label.action}`);
   const secondLine = clip(url);
   return `${firstLine}\n${secondLine}`;
 }

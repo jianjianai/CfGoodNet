@@ -1,9 +1,10 @@
 // 通配符匹配（* 和 ?）
-export function DOMAINWildcardRulecreater(pattern: string): (urlString: string) => boolean {
-  const escaped = pattern
-    .trim()
-    .toLowerCase()
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&");
+export function DOMAINWildcardRulecreater(pattern: string|null): (urlString: string) => boolean {
+  if (!pattern) {
+    return () => false;
+  }
+  const normalized = pattern.trim().toLowerCase();
+  const escaped = normalized.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   const regexBody = escaped.replace(/\*/g, ".*").replace(/\?/g, ".");
   const re = new RegExp(`^${regexBody}$`, "i");
   return (urlString: string) => {

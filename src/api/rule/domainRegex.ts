@@ -1,5 +1,8 @@
 // 正则表达式匹配
-export function DOMAINRegexRulecreater(pattern: string): (urlString: string) => boolean {
+export function DOMAINRegexRulecreater(pattern: string|null): (urlString: string) => boolean {
+  if (!pattern) {
+    return () => false;
+  }
   let re: RegExp;
   try {
     re = new RegExp(pattern);
