@@ -103,6 +103,15 @@ export const cfProxyOutbound: Outbound = {
       },
       (upstreamResponse) => {
         const responseHeaders = { ...upstreamResponse.headers };
+        const contentTypeHeader = responseHeaders["content-type"];
+        if (typeof contentTypeHeader === "string" && contentTypeHeader.includes("text/cf-html")) {
+          responseHeaders["content-type"] = contentTypeHeader.replace("text/cf-html", "text/html");
+        } else if (Array.isArray(contentTypeHeader)) {
+          responseHeaders["content-type"] = contentTypeHeader
+            .map((value) => (value.includes("text/cf-html") ? value.replace("text/cf-html", "text/html") : value))
+            .join(", ");
+        }
+
         const locationHeader = upstreamResponse.headers.location;
         if (
           shouldRewriteCfLocation &&
