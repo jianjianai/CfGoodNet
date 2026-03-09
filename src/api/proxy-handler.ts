@@ -1,11 +1,9 @@
 import {
-  type IncomingHttpHeaders,
   type IncomingMessage,
   request as httpRequest,
   type ServerResponse,
 } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { createBrotliDecompress, createUnzip } from "node:zlib";
 import {
   getCfGoodResolvedIp,
   cfProxyUrl,
@@ -260,144 +258,6 @@ function readHttpProxyConnectResponse(
 }
 
 /**
- * 从 HTML 中移除 Cloudflare Web Analytics 的 beacon 注入脚本。
- * @param html 原始 HTML 文本。
- * @returns 移除 beacon 脚本后的 HTML。
- */
-function stripCloudflareBeaconScript(html: string): string {
-  return html.replace(
-    /<script\b[^>]*\bsrc=["']https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js[^"']*["'][^>]*>\s*<\/script>/gi,
-    "",
-  );
-}
-
-/**
- * 判断响应是否为 HTML，只有 HTML 才执行脚本移除。
- * @param contentType 响应头中的 Content-Type。
- * @returns 是否为 HTML 响应。
- */
-function isHtmlResponse(contentType: string | string[] | undefined): boolean {
-  if (!contentType) {
-    return false;
-  }
-
-  const normalized = Array.isArray(contentType) ? contentType.join(";") : contentType;
-  return normalized.toLowerCase().includes("text/html");
-}
-
-/**
- * 标准化 Content-Encoding，便于统一分支处理压缩解压。
- * @param contentEncoding 响应头中的 Content-Encoding。
- * @returns 标准化后的编码名称。
- */
-function getContentEncoding(contentEncoding: string | string[] | undefined): string {
-  if (!contentEncoding) {
-    return "";
-  }
-
-  const raw = Array.isArray(contentEncoding) ? contentEncoding[0] : contentEncoding;
-  return (raw ?? "").toLowerCase().trim();
-}
-
-/**
- * 收集可读流为完整 Buffer，供 HTML 重写逻辑一次性处理。
- * @param stream 需要收集的数据流。
- * @param onDone 流读取完成回调。
- * @param onError 流读取失败回调。
- * @returns 无返回值。
- */
-function collectStreamChunks(
-  stream: NodeJS.ReadableStream,
-  onDone: (buffer: Buffer) => void,
-  onError: (error: Error) => void,
-): void {
-  const chunks: Buffer[] = [];
-  stream.on("data", (chunk: Buffer | string) => {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  });
-  stream.on("end", () => {
-    onDone(Buffer.concat(chunks));
-  });
-  stream.on("error", onError);
-}
-
-/**
- * 统一转发上游 HTTP 响应：可选重写 Location、可选解压并移除 beacon 脚本。
- * @param clientRes 客户端响应对象。
- * @param upstreamResponse 上游响应对象。
- * @param options 转发选项（重定向重写、cfProxy 信息、是否移除 beacon）。
- * @returns 无返回值。
- */
-function forwardUpstreamResponse(
-  clientRes: ServerResponse,
-  upstreamResponse: IncomingMessage,
-  options: {
-    rewriteLocation: boolean;
-    cfProxyUrl?: URL;
-    cfProxyBasePath: string;
-    removeBeaconScript: boolean;
-  },
-): void {
-  const responseHeaders: IncomingHttpHeaders = { ...upstreamResponse.headers };
-  const locationHeader = upstreamResponse.headers.location;
-  if (options.rewriteLocation && options.cfProxyUrl && typeof locationHeader === "string") {
-    responseHeaders.location = rewriteCfProxyLocation(locationHeader, options.cfProxyUrl, options.cfProxyBasePath);
-  }
-
-  const shouldStripBeacon =
-    options.removeBeaconScript &&
-    isHtmlResponse(responseHeaders["content-type"]);
-
-  if (!shouldStripBeacon) {
-    clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
-    upstreamResponse.pipe(clientRes);
-    return;
-  }
-
-  const contentEncoding = getContentEncoding(responseHeaders["content-encoding"]);
-  let rewriteSource: NodeJS.ReadableStream;
-
-  if (contentEncoding === "br") {
-    const brotli = createBrotliDecompress();
-    upstreamResponse.pipe(brotli);
-    rewriteSource = brotli;
-  } else if (contentEncoding === "gzip" || contentEncoding === "x-gzip" || contentEncoding === "deflate") {
-    const unzip = createUnzip();
-    upstreamResponse.pipe(unzip);
-    rewriteSource = unzip;
-  } else if (contentEncoding === "" || contentEncoding === "identity") {
-    rewriteSource = upstreamResponse;
-  } else {
-    clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
-    upstreamResponse.pipe(clientRes);
-    return;
-  }
-
-  collectStreamChunks(
-    rewriteSource,
-    (htmlBuffer) => {
-      const html = htmlBuffer.toString("utf8");
-    const strippedHtml = stripCloudflareBeaconScript(html);
-    const bodyBuffer = Buffer.from(strippedHtml, "utf8");
-
-    delete responseHeaders["content-encoding"];
-    delete responseHeaders["transfer-encoding"];
-    responseHeaders["content-length"] = String(bodyBuffer.byteLength);
-
-    clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
-    clientRes.end(bodyBuffer);
-    },
-    (error) => {
-      console.error("[proxy] failed to rewrite html response", error);
-      if (!clientRes.headersSent) {
-        clientRes.writeHead(502, { "Content-Type": "text/plain" });
-      }
-      clientRes.end("Bad Gateway");
-    },
-  );
-}
-
-/**
  * 处理普通 HTTP/HTTPS 代理请求：按规则选择 DIRECT/cfProxy/httpProxy 并转发响应。
  * @param clientReq 客户端请求。
  * @param clientRes 客户端响应。
@@ -480,12 +340,18 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
           headers: upstreamHeaders,
         },
         (upstreamResponse) => {
-          forwardUpstreamResponse(clientRes, upstreamResponse, {
-            rewriteLocation: shouldRewriteCfLocation,
-            cfProxyUrl: matchedCfProxyUrl,
-            cfProxyBasePath,
-            removeBeaconScript: proxyAction === "cfProxy",
-          });
+          const responseHeaders = { ...upstreamResponse.headers };
+          const locationHeader = upstreamResponse.headers.location;
+          if (shouldRewriteCfLocation && matchedCfProxyUrl && typeof locationHeader === "string") {
+            responseHeaders.location = rewriteCfProxyLocation(
+              locationHeader,
+              matchedCfProxyUrl,
+              cfProxyBasePath,
+            );
+          }
+
+          clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
+          upstreamResponse.pipe(clientRes);
         },
       )
     : (upstreamUrl.protocol === "https:" ? httpsRequest : httpRequest)(
@@ -499,12 +365,18 @@ export function handleProxyRequest(clientReq: IncomingMessage, clientRes: Server
           headers: upstreamHeaders,
         },
         (upstreamResponse) => {
-          forwardUpstreamResponse(clientRes, upstreamResponse, {
-            rewriteLocation: shouldRewriteCfLocation,
-            cfProxyUrl: matchedCfProxyUrl,
-            cfProxyBasePath,
-            removeBeaconScript: proxyAction === "cfProxy",
-          });
+          const responseHeaders = { ...upstreamResponse.headers };
+          const locationHeader = upstreamResponse.headers.location;
+          if (shouldRewriteCfLocation && matchedCfProxyUrl && typeof locationHeader === "string") {
+            responseHeaders.location = rewriteCfProxyLocation(
+              locationHeader,
+              matchedCfProxyUrl,
+              cfProxyBasePath,
+            );
+          }
+
+          clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
+          upstreamResponse.pipe(clientRes);
         },
       );
 
