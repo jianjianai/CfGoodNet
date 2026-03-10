@@ -86,7 +86,6 @@ export const cfProxyOutbound: Outbound = {
     const upstreamUrl = new URL(proxyUrl);
     const matchedCfProxyUrl = cfProxyUrl;
     const cfProxyConnectIp = getCfGoodResolvedIp();
-    const proxyRul = cfProxyUrl.href;
     const cfProxyPath = proxyBasePath;
     const shouldRewriteCfLocation = true;
 
@@ -110,6 +109,15 @@ export const cfProxyOutbound: Outbound = {
         headers: upstreamHeaders,
       },
       (upstreamResponse) => {
+        // catch errors emitted by the response's underlying socket
+        upstreamResponse.on("error", (err) => {
+          console.error("[proxy] upstream response error", err);
+          if (!clientRes.headersSent) {
+            clientRes.writeHead(502, { "Content-Type": "text/plain" });
+          }
+          clientRes.end("Bad Gateway: upstream response error");
+        });
+
         const responseHeaders = { ...upstreamResponse.headers };
         const contentTypeHeader = responseHeaders["content-type"];
         if (typeof contentTypeHeader === "string" && contentTypeHeader.includes("text/cf-html")) {
@@ -144,6 +152,12 @@ export const cfProxyOutbound: Outbound = {
         clientRes.writeHead(502, { "Content-Type": "text/plain" });
       }
       clientRes.end(`Bad Gateway: cfProxy upstream ${upstreamUrl.host} unreachable`);
+    });
+
+    // avoid unhandled errors on the incoming request as well
+    clientReq.on("error", (err) => {
+      console.error("[proxy] client request error", err);
+      upstreamRequest.destroy();
     });
 
     clientReq.pipe(upstreamRequest);

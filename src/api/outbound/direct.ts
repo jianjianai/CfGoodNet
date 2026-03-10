@@ -34,6 +34,14 @@ export const DIRECToutbound: Outbound = {
         headers: upstreamHeaders,
       },
       (upstreamResponse) => {
+        upstreamResponse.on("error", (err) => {
+          console.error("[proxy] upstream response error", err);
+          if (!clientRes.headersSent) {
+            clientRes.writeHead(502, { "Content-Type": "text/plain" });
+          }
+          clientRes.end("Bad Gateway: upstream response error");
+        });
+
         const responseHeaders = { ...upstreamResponse.headers };
         clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
         upstreamResponse.pipe(clientRes);
@@ -47,6 +55,11 @@ export const DIRECToutbound: Outbound = {
       }
       // include upstream host in response body for easier debugging
       clientRes.end(`Bad Gateway: could not reach ${upstreamUrl.host}`);
+    });
+
+    clientReq.on("error", (err) => {
+      console.error("[proxy] client request error", err);
+      upstreamRequest.destroy();
     });
 
     clientReq.pipe(upstreamRequest);

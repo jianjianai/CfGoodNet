@@ -51,6 +51,14 @@ export const httpProxyOutbound: Outbound = {
         headers: upstreamHeaders,
       },
       (upstreamResponse) => {
+        upstreamResponse.on("error", (err) => {
+          console.error("[proxy] upstream response error", err);
+          if (!clientRes.headersSent) {
+            clientRes.writeHead(502, { "Content-Type": "text/plain" });
+          }
+          clientRes.end("Bad Gateway: upstream response error");
+        });
+
         const responseHeaders = { ...upstreamResponse.headers };
         clientRes.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
         upstreamResponse.pipe(clientRes);
@@ -63,6 +71,11 @@ export const httpProxyOutbound: Outbound = {
         clientRes.writeHead(502, { "Content-Type": "text/plain" });
       }
       clientRes.end(`Bad Gateway: proxy ${httpProxyHost}:${httpProxyPort} unreachable`);
+    });
+
+    clientReq.on("error", (err) => {
+      console.error("[proxy] client request error", err);
+      upstreamRequest.destroy();
     });
 
     clientReq.pipe(upstreamRequest);
